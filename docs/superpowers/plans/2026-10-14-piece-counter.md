@@ -22,6 +22,7 @@
 - Shell: Git Bash on Windows. Before any Gradle command: `export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"`. Run Gradle from the project root as `./gradlew …`.
 - Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - If a golden-set count misses its allowance, **do not raise the allowance**. Report the deltas to the user and stop.
+- **Test photos are never committed** (the repo will go to GitHub). They live locally in `app/src/androidTest/assets/golden/` (git-ignored); only `golden.json` is committed. Photo-based tests skip via `assumeTrue` when a photo is missing, so before calling Task 7 or 8 done, confirm in the test output that they **ran** rather than being skipped. Before every commit, `git status` must show no `.jpg` files staged.
 
 ## Review Focus
 
@@ -60,7 +61,7 @@ app/src/main/java/app/piececounter/
 app/src/main/res/xml/file_paths.xml    (Task 9)
 app/src/test/java/app/piececounter/…   JVM tests (Tasks 2–6)
 app/src/androidTest/java/app/piececounter/detect/  DetectorTest, GoldenSetTest (Tasks 7–8)
-app/src/androidTest/assets/golden/     3 photos + golden.json (Task 7)
+app/src/androidTest/assets/golden/     golden.json (committed) + 3 photos (local, git-ignored) (Tasks 7–8)
 ```
 
 ---
@@ -136,12 +137,13 @@ app/src/androidTest/assets/golden/     3 photos + golden.json (Task 7)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   ```
 
-- [ ] **Step 5: Ignore the user's raw photo folder** (the photos get copied into test assets in Task 7)
+- [ ] **Step 5: Keep the test photos out of git**
 
   Append to the root `.gitignore`:
 
   ```
   /Test data/
+  /app/src/androidTest/assets/golden/*.jpg
   ```
 
 - [ ] **Step 6: Verify the build with the new dependencies**
@@ -1025,7 +1027,7 @@ This task refines spec section 7's id rule. Detected ids are still the index in 
 - Create: `app/src/main/java/app/piececounter/detect/DetectorConfig.kt`
 - Create: `app/src/main/java/app/piececounter/detect/PhotoLoader.kt`
 - Create: `app/src/main/java/app/piececounter/detect/PieceDetector.kt` (`prepare`, `sampleAt`; `detect` is added in Task 8)
-- Create: `app/src/androidTest/assets/golden/` (3 photos copied from `Test data/`)
+- Create (local only, git-ignored): `app/src/androidTest/assets/golden/*.jpg` (3 photos copied from `Test data/`)
 - Test: `app/src/androidTest/java/app/piececounter/detect/DetectorTest.kt`
 
 **Interfaces:**
@@ -1036,12 +1038,15 @@ This task refines spec section 7's id rule. Detected ids are still the index in 
   - `class PreparedImage { val width: Int; val height: Int; fun release() }`
   - `class PieceDetector(config: DetectorConfig = DetectorConfig()) { fun prepare(bitmap: Bitmap): PreparedImage; fun sampleAt(img: PreparedImage, tap: Pt): List<Lab>? }`
 
-- [ ] **Step 1: Copy the golden photos into test assets**
+- [ ] **Step 1: Copy the golden photos into test assets (local only, git-ignored)**
 
   ```bash
   mkdir -p app/src/androidTest/assets/golden
   cp "Test data/20261014_182938.jpg" "Test data/20261014_182953.jpg" "Test data/20261014_183235.jpg" app/src/androidTest/assets/golden/
+  git check-ignore -q app/src/androidTest/assets/golden/20261014_182938.jpg && echo ignored
   ```
+
+  Expected: prints `ignored`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1057,19 +1062,24 @@ This task refines spec section 7's id rule. Detected ids are still the index in 
   import org.junit.Assert.assertNotNull
   import org.junit.Assert.assertNull
   import org.junit.Assert.assertTrue
+  import org.junit.Assume.assumeTrue
   import org.junit.Before
   import org.junit.Test
   import org.junit.runner.RunWith
   import org.opencv.android.OpenCVLoader
   import kotlin.math.abs
 
+  /** Needs the git-ignored golden photos locally; skips (not fails) without them. */
   @RunWith(AndroidJUnit4::class)
   class DetectorTest {
       private val ctx = InstrumentationRegistry.getInstrumentation().context
       private val detector = PieceDetector()
       private fun loadGolden(name: String) = PhotoLoader.load({ ctx.assets.open("golden/$name") })
 
-      @Before fun initOpenCv() { assertTrue(OpenCVLoader.initLocal()) }
+      @Before fun setUp() {
+          assumeTrue("golden photos not present", "20261014_182938.jpg" in (ctx.assets.list("golden") ?: emptyArray()))
+          assertTrue(OpenCVLoader.initLocal())
+      }
 
       @Test fun portraitPhotoIsRotatedUprightAndScaled() {
           val b = loadGolden("20261014_182938.jpg")
@@ -1280,12 +1290,13 @@ This task refines spec section 7's id rule. Detected ids are still the index in 
 - [ ] **Step 5: Run the test to verify it passes**
 
   Run: `./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.piececounter.detect.DetectorTest`
-  Expected: PASS (3 tests)
+  Expected: PASS (3 tests, none skipped — a skip means the photos weren't copied in Step 1)
 
 - [ ] **Step 6: Commit**
 
   ```bash
   git add app/src/main/java/app/piececounter/detect app/src/androidTest
+  git diff --cached --name-only | grep -i '\.jpg$' && echo "STOP: photo staged" || true
   git commit -m "feat(detect): load photos upright, prepare Lab image, sample taps
 
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1344,17 +1355,21 @@ This task refines spec section 7's id rule. Detected ids are still the index in 
   import app.piececounter.core.Pt
   import org.json.JSONArray
   import org.junit.Assert.assertTrue
+  import org.junit.Assume.assumeTrue
   import org.junit.Test
   import org.junit.runner.RunWith
   import org.opencv.android.OpenCVLoader
   import kotlin.math.abs
 
+  /** Needs the git-ignored golden photos locally; skips (not fails) without them. */
   @RunWith(AndroidJUnit4::class)
   class GoldenSetTest {
       @Test fun goldenPhotosCountWithinAllowance() {
           assertTrue(OpenCVLoader.initLocal())
           val ctx = InstrumentationRegistry.getInstrumentation().context
           val photos = JSONArray(ctx.assets.open("golden/golden.json").bufferedReader().readText())
+          val present = ctx.assets.list("golden")?.toSet() ?: emptySet()
+          assumeTrue("golden photos not present", (0 until photos.length()).all { photos.getJSONObject(it).getString("file") in present })
           val detector = PieceDetector()
           val failures = mutableListOf<String>()
 
@@ -1544,6 +1559,7 @@ This task refines spec section 7's id rule. Detected ids are still the index in 
 
   ```bash
   git add app/src/main/java/app/piececounter/detect app/src/androidTest
+  git diff --cached --name-only | grep -i '\.jpg$' && echo "STOP: photo staged" || true
   git commit -m "feat(detect): sample-driven piece detection with golden-set test
 
   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
