@@ -33,5 +33,6 @@ jobs:
             echo "::error::Listed $listed of $expected changed files; cannot check the rest."
             exit 1
           fi
-          jq -rs 'add | .[] | .filename, (.previous_filename // empty)' files.json \
+          # NUL-separated (-j joins raw output): a filename may contain a newline.
+          jq -js 'add | .[] | (.filename, (.previous_filename // empty)) + "\u0000"' files.json \
             | bash .github/scripts/trail-guard.sh "$AUTHOR" "$OWNER"

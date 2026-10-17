@@ -25,3 +25,6 @@ touches:
 - gradlew.bat is at the repo root here (under app/ in Dracula), so the root-executable rule makes it owner-only. That's intended; there's a test for it.
 - The guard regex is matched against folded lowercase paths: write new entries in lowercase (docs/status\.md), not as cased on disk.
 - Add a test case to trail-guard.test.sh for every regex change, and run: bash .github/scripts/trail-guard.test.sh
+- The guard reads NUL-separated paths (jq -j with "\u0000" in guard.yml, printf '%s\0' in the test helper) and splits, folds and matches them in one Python process. Splitting in two tools (bash read vs Python splitlines(), which also splits on U+2028, \r, \x85) let a crafted name shift the paths out of line with their folded forms and slip .trail/hook.cjs past. Names with control or line-separator characters are reported as protected.
+- Root package.json is protected: hook.cjs resolves @trailhq/trail-code by name, and Node checks the nearest package.json above .trail/hook.cjs for a self-reference before node_modules, so a planted one could point trail at unprotected code in the repo.
+- The same two bypasses exist in kjmikkel/Dracula-Night-by-Night's guard, where this one came from.

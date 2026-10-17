@@ -7,6 +7,8 @@
 /.trail @kjmikkel
 /node_modules @kjmikkel
 /dist/claude @kjmikkel
+# node resolves trail's own package name through the root package.json
+/package.json @kjmikkel
 .claude @kjmikkel
 CLAUDE.md @kjmikkel
 CLAUDE.local.md @kjmikkel
